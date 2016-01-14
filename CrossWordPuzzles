@@ -1,0 +1,99 @@
+# lang racket
+
+
+;;;;;;;;;;;;;;;;;;;;;;
+;; INTERFACE
+
+(provide flip transpose find-wpos initial-state extract-wpos
+;; DATA DEFINITIONS
+
+;; A Puzzle is a (list (listof String) (listof String))
+
+;; A Grid is a (listof (listof Char))
+
+(struct wpos (row col horiz? len))
+;; A WPos (Word Position) is a (make-wpos Nat Nat Bool Nat)
+;; requires: len > 1
+
+(struct state (grid positions words))
+;; A State is a (make-state Grid (listof WPos) (listof Str))
+
+
+;; reverse row and col and negating horiz?
+(define (flip wp)
+  (make-wpos (wpos-col wp) (wpos-row wp) (not (wpos-horiz? wp)) (wpos-len wp)))
+
+
+
+;; reverse g into list of col
+(define (transpose g)
+  (apply map list g))
+
+
+;; produce list of positions that can fill words
+(define (find-wpos g r)
+  (local [(define (word-posn loc n)
+            (cond [(empty? loc) empty]
+                  [(char=? #\# (first loc))
+                   (cons n (word-posn1 (rest loc) (add1 n)))]
+                  [else (word-posn (rest loc) (add1 n))]))
+          (define (word-posn1 loc n)
+            (cond [(empty? loc) empty]
+                  [(char=? #\# (first loc))
+                   (word-posn1 (rest loc) (add1 n))]
+                  [else (word-posn (rest loc) (add1 n))]))
+          (define (word-leng loc n)
+            (cond [(empty? loc) (list n)]
+                  [(char=? #\# (first loc))
+                   (word-leng (rest loc) (add1 n))]
+                  [else (cons n (word-leng (rest loc) 0))]))
+          
+          (define (choose loc)
+            (filter (lambda (x) (>= (second x) 2))
+                    (map (lambda (x y) (list x y))
+                         (word-posn loc 0)
+                         (filter (lambda (x) (not (zero? x)))
+                                 (word-leng loc 0)))))]
+    (map (lambda (x) (make-wpos r (first x) true (second x)))
+         (choose g))))
+
+ 
+ 
+;; produce the initial state of puzz
+(define (initial-state puzz)
+  (local [(define p-grid (map (lambda (x) (string->list x)) (first puzz)))
+          (define (find-wpos/vert g col)
+            (local [(define (word-posn loc n)
+                      (cond [(empty? loc) empty]
+                            [(char=? #\# (first loc))
+                             (cons n (word-posn1 (rest loc) (add1 n)))]
+                            [else (word-posn (rest loc) (add1 n))]))
+                    (define (word-posn1 loc n)
+                      (cond [(empty? loc) empty]
+                            [(char=? #\# (first loc))
+                   (word-posn1 (rest loc) (add1 n))]
+                            [else (word-posn (rest loc) (add1 n))]))
+                    (define (word-leng loc n)
+                      (cond [(empty? loc) (list n)]
+                            [(char=? #\# (first loc))
+                             (word-leng (rest loc) (add1 n))]
+                            [else (cons n (word-leng (rest loc) 0))]))
+                    (define (choose loc)
+                      (filter (lambda (x) (>= (second x) 2))
+                              (map (lambda (x y) (list x y))
+                                   (word-posn loc 0)
+                                   (filter (lambda (x) (not (zero? x)))
+                                           (word-leng loc 0)))))]
+              (map (lambda (x) (make-wpos (first x) col false (second x)))
+                   (choose g))))]
+    (make-state p-grid
+                (foldr (lambda (x y) (cond [(empty? x) y]
+                                           [else (cons x y)]))
+                       empty
+                       (append (map (lambda (x y) (find-wpos (string->list x) y))
+                                    (first puzz)
+                                    (build-list (length puzz) identity))
+                               (map (lambda (x y) (find-wpos/vert x y))
+                                    (transpose p-grid)
+                                    (build-list (length (transpose p-grid)) identity))))
+                (second puzz))))
