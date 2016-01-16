@@ -1,0 +1,142 @@
+#lang racket
+
+(require "../common/uw-api.rkt") ;; Developed by Dave 
+
+;; This file requires uw-api to seek the infomations:
+;; parking lot availabilty
+;; course infomations - aviod log into QUEST or UW Flow during course selection period 
+;; goose location - we KNOW the REASON!
+
+;;;;;;;;;;;;;;;;
+;; INTERFACE: ;;
+
+(provide parking-availability current-course-info find-prereq)
+
+;; (parking-availability lot) produces the number of currently available 
+;;   parking spots for lot
+;; parking-availability: String -> Nat
+
+;; (course-capacity term subject catalog) pruduces a list of the 
+;;   (group section enrollment_capacity enrollment_tota) 
+;;   for the course of subject with catalog in term 
+;; course-capacity: Nat String Nat -> (listof (list String Nat Nat))
+
+
+;; (current-course-info 1161 "CS" 136)
+;; (current-course-info 1161 "MATH" 136)
+;; (find-prereq "CS" 146) // (display "prerequisites_parsed\nCS145")
+;; (find-prereq "CS" 486) // (display prerequisites_parsed\n1 of the following: 
+;;                           \nSE240\n1 of the following:\nCM339\nCS341
+
+;;;;;;;;;;;;;;;;
+
+
+;;;;;;;;;;;;;;;;;;;;;
+;; IMPLEMENTATION: ;;
+
+(define (current-course-info term subject catalog)
+  (local [(define course-info
+                     (uw-api (string-append "/terms/" 
+                                            (number->string term) 
+                                            "/" subject "/" 
+                                            (number->string catalog) 
+                                            "/schedule")))
+          (define (current-info term subject catalog)
+           (local [(define (select field lst)
+                     (map (lambda (x) (second x))
+                          (map (lambda (y)
+                                 (first
+                                  (filter (lambda (x)
+                                            (string=? field (first x)))
+                                          y)))
+                               lst)))
+                   (define (select-instructor)
+                     (foldr (lambda (x y) (cond [(empty? x) (append '(Staff) y)]
+                                                [else (append x y)]))
+                            empty
+                            (map (lambda (x)
+                                   (second
+                                    (first (filter
+                                            (lambda (y) (string=? "instructors"
+                                                                  (first y)))
+                                            (first x)))))
+                                 (select "classes" course-info))))]
+             (map (lambda (a b c d) (list a b c d))
+                  (select "section" course-info)
+                  (select-instructor)
+                  (select "enrollment_capacity" course-info)
+                  (select "enrollment_total" course-info))))
+          (define (wrap lst)
+            (cond [(empty? lst) (display "\n\n\n")]
+                  [else (display (first lst))
+                        (display "\n")
+                        (wrap (rest lst))]))]
+    (display (string-append subject (number->string catalog)
+                            " in term " (number->string term)
+                            ":" "\n\n" 
+                            "(sectionNo.   instructor   capacity   enrol)" 
+                            "\n\n")) 
+    (wrap (current-info term subject catalog))))
+
+
+
+(define (find-prereq sub cata)
+  (display(local [(define prereq-lst
+                    (first (filter (lambda (x) (cond
+                                                 [(false? x) empty]
+                                                 [else (string=?
+                                                (first x)
+                                                "prerequisites_parsed")]))
+                                   (uw-api (string-append "/courses/" sub "/"
+                                                          (number->string cata)
+                                                          "/prerequisites")))))
+                  (define (n-of-test lst)
+                    (number? (first lst)))
+                  (define (str-lst-append los)
+                    (cond [(empty? los) ""]
+                          [else (string-append (first los) 
+                                               "\n" 
+                                               (str-lst-append (rest los)))]))
+                  (define (n-of lst)
+                    (cond [(empty? lst) ""]
+                          [else (string-append (number->string (first lst))
+                                               " of the following: "
+                                               "\n"
+                                               (str-lst-append
+                                                (filter string?
+                                                        (rest lst)))
+                                               (simple-lst
+                                                (filter cons?
+                                                        (rest lst))))]))
+                  (define (simple-lst lst)
+                    (cond [(empty? lst) ""]
+                          [(n-of-test lst) (n-of lst)]
+                          [(cons? (first lst)) (string-append
+                                                (simple-lst (first lst))
+                                                (simple-lst (rest lst)))]
+                          [else (string-append (first lst)
+                                               "\n"
+                                               (simple-lst (rest lst)))]))]
+            
+            (cond [(false? (uw-api (string-append "/courses/" sub "/"
+                                                  (number->string cata)
+                                                  "/prerequisites")))
+                   "The course you asked has NO prerequisites!"]
+                  [(n-of-test prereq-lst) (n-of prereq-lst)]
+                  [else (simple-lst prereq-lst)]))))
+
+
+
+
+(define (parking-availability lot)
+  (- (second (first (filter (lambda (x) (string=? "capacity" (first x)))
+                            (first (filter (lambda (x)
+                                             (member (list "lot_name" lot) x))
+                                           (uw-api "/parking/watpark"))))))
+     (second (first (filter (lambda (x) (string=? "current_count" (first x)))
+                       (first (filter (lambda (x)
+                                        (member (list "lot_name" lot) x))
+                                      (uw-api "/parking/watpark"))))))))
+
+
+
